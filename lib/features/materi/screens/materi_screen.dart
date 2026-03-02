@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../models/materi_model.dart';
-import 'materi_detail_screen.dart';
+import 'ai_summary_screen.dart';
 
 class MateriScreen extends StatelessWidget {
   const MateriScreen({super.key});
@@ -54,7 +54,10 @@ class MateriScreen extends StatelessWidget {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => MateriDetailScreen(materi: materi),
+                builder: (context) => AiSummaryScreen(
+                  title: materi.title,
+                  content: materi.content,
+                ),
               ),
             );
           },
