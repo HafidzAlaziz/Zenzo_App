@@ -2,10 +2,16 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/gemini_service.dart';
 import '../../../core/services/learning_data_service.dart';
+import '../../../core/services/statistics_service.dart';
 import '../../../core/widgets/writing_animation.dart';
+import '../../../core/widgets/ai_error_widget.dart';
+import '../../../core/widgets/flip_card.dart';
 
 class FlashcardScreen extends StatefulWidget {
-  const FlashcardScreen({super.key});
+  final List<Map<String, String>>? initialCards;
+  final String? initialText;
+
+  const FlashcardScreen({super.key, this.initialCards, this.initialText});
 
   @override
   State<FlashcardScreen> createState() => _FlashcardScreenState();
@@ -18,14 +24,29 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
   int _currentIndex = 0;
   bool _showAnswer = false;
 
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialCards != null && widget.initialCards!.isNotEmpty) {
+      _flashcards = widget.initialCards!;
+    } else if (widget.initialText != null && widget.initialText!.isNotEmpty) {
+      _controller.text = widget.initialText!;
+      _generateFlashcards();
+    }
+  }
+
   // New controls
   double _cardCount = 5;
   String _selectedModel = 'gemini-flash-latest';
+  String _errorMessage = '';
 
   Future<void> _generateFlashcards() async {
     if (_controller.text.isEmpty) return;
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+    });
 
     // Save to history
     LearningDataService().addMaterial(_controller.text);
@@ -36,36 +57,18 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
       model: _selectedModel,
     );
 
+    // Track study session
+    StatisticsService().addStudyTime(2);
+
     if (mounted) {
       setState(() {
-        _flashcards = cards.isEmpty
-            ? [
-                {
-                  'question': 'Apa itu Fotosintesis?',
-                  'answer':
-                      'Proses tumbuhan hijau mengubah energi cahaya menjadi energi kimia (makanan).',
-                },
-                {
-                  'question': 'Sebutkan 3 hukum Newton!',
-                  'answer': '1. Inersia, 2. F=ma, 3. Aksi-Reaksi.',
-                },
-                {
-                  'question': 'Ibu kota Indonesia?',
-                  'answer': 'Jakarta (saat ini) / Nusantara (IKN).',
-                },
-                {
-                  'question': 'Siapa penemu lampu pijar?',
-                  'answer': 'Thomas Alva Edison.',
-                },
-                {
-                  'question': 'Apa itu Pancasila?',
-                  'answer': 'Dasar negara dan ideologi bangsa Indonesia.',
-                },
-              ]
-            : cards;
+        _flashcards = cards;
         _isLoading = false;
         _currentIndex = 0;
         _showAnswer = false;
+        if (cards.isEmpty) {
+          _errorMessage = 'Gagal membuat kartu hafalan.';
+        }
       });
     }
   }
@@ -82,7 +85,27 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
       ),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
-        child: _flashcards.isEmpty ? _buildInputView() : _buildFlashcardView(),
+        child: _isLoading
+            ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const WritingAnimation(
+                      text: 'AI sedang menulis kartu hafalan...',
+                    ),
+                    const SizedBox(height: 24),
+                    const CircularProgressIndicator(color: AppColors.zenGold),
+                  ],
+                ),
+              )
+            : _errorMessage.isNotEmpty
+            ? AiErrorWidget(
+                errorMessage: _errorMessage,
+                onRetry: _generateFlashcards,
+              )
+            : _flashcards.isEmpty
+            ? _buildInputView()
+            : _buildFlashcardView(),
       ),
     );
   }
@@ -230,45 +253,33 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
         const SizedBox(height: 12),
         Text('Kartu ${_currentIndex + 1} dari ${_flashcards.length}'),
         const Spacer(),
-        GestureDetector(
+        FlipCard(
+          isFlipped: _showAnswer,
           onTap: () => setState(() => _showAnswer = !_showAnswer),
-          child: Container(
-            height: 350,
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(32),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.zenGold.withOpacity(0.15),
-                  blurRadius: 24,
-                  offset: const Offset(0, 12),
-                ),
-              ],
-            ),
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32.0),
-                child: Text(
-                  _showAnswer ? card['answer']! : card['question']!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: _showAnswer
-                        ? AppColors.primaryTeal
-                        : AppColors.textPrimary,
-                  ),
-                ),
-              ),
-            ),
-          ),
+          front: _buildCardSide(card['question']!, isFront: true),
+          back: _buildCardSide(card['answer']!, isFront: false),
         ),
         const SizedBox(height: 16),
-        const Text(
-          'Tap kartu untuk melihat jawaban',
-          style: TextStyle(color: AppColors.textSecondary),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.check_circle_outline_rounded,
+              size: 14,
+              color: AppColors.primaryTeal,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              'Tekan jika sudah hafal',
+              style: TextStyle(
+                color: AppColors.primaryTeal.withValues(alpha: 0.8),
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
         ),
+        const SizedBox(height: 16),
         const Spacer(),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -290,6 +301,7 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
                     _showAnswer = false;
                   });
                 } else {
+                  StatisticsService().incrementFlashcards();
                   Navigator.pop(context);
                 }
               },
@@ -320,6 +332,45 @@ class _FlashcardScreenState extends State<FlashcardScreen> {
           ],
         ),
       ],
+    );
+  }
+
+  Widget _buildCardSide(String text, {required bool isFront}) {
+    return Container(
+      height: 350,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        gradient: isFront
+            ? null
+            : const LinearGradient(
+                colors: [AppColors.zenGold, Color(0xFFB88E4F)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+        borderRadius: BorderRadius.circular(32),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.zenGold.withOpacity(0.15),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: Text(
+            text,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: isFront ? AppColors.textPrimary : Colors.white,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

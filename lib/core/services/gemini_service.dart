@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class GeminiService {
-  static const String _apiKey = 'AIzaSyDPV8dFrvO4fKX2PnwXv-XqOTE4yXRksW8';
+  static const String _apiKey = 'AIzaSyC8wcn_EpKrCl8UY0MuvLhP2bTeJjwlD48';
 
   static final Map<String, String?> _modelHealth = {
     'gemini-flash-latest': null,

@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../materi/screens/materi_screen.dart';
 import '../../quiz/screens/quiz_screen.dart';
 import '../../quiz/screens/latihan_soal_input_screen.dart';
 import '../../stats/screens/stats_screen.dart';
 import '../../target/screens/quest_screen.dart';
 import '../../materi/screens/flashcard_screen.dart';
 import '../../materi/screens/rangkum_materi_screen.dart';
+import '../../leaderboard/screens/leaderboard_screen.dart';
+import '../../profile/screens/profile_screen.dart';
+import '../../../core/services/statistics_service.dart';
+import '../../../core/widgets/study_chart.dart';
+import '../../../core/widgets/count_up_text.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -20,9 +24,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   final List<Widget> _screens = [
     const _DashboardHome(),
-    const MateriScreen(),
-    const Center(child: Text('Halaman Kesehatan')),
-    const Center(child: Text('Halaman Profil')),
+    const LeaderboardScreen(),
+    const ProfileScreen(),
   ];
 
   @override
@@ -59,14 +62,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               label: 'Beranda',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.menu_book_outlined),
-              activeIcon: Icon(Icons.menu_book_rounded),
-              label: 'Materi',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.favorite_outline),
-              activeIcon: Icon(Icons.favorite_rounded),
-              label: 'Kesehatan',
+              icon: Icon(Icons.emoji_events_outlined),
+              activeIcon: Icon(Icons.emoji_events_rounded),
+              label: 'Leaderboard',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.person_outline),
@@ -80,8 +78,125 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 }
 
-class _DashboardHome extends StatelessWidget {
+class _DashboardHome extends StatefulWidget {
   const _DashboardHome();
+
+  @override
+  State<_DashboardHome> createState() => _DashboardHomeState();
+}
+
+class _DashboardHomeState extends State<_DashboardHome>
+    with TickerProviderStateMixin {
+  late AnimationController _streakController;
+  late Animation<double> _streakScale;
+  late AnimationController _streakDaysController;
+  late List<Animation<double>> _dayAnimations;
+  late AnimationController _menuController;
+  late List<Animation<double>> _menuAnimations;
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _statsKey = GlobalKey();
+  bool _statsAnimated = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Fire icon pop animation
+    _streakController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    );
+    _streakScale =
+        TweenSequence<double>([
+          TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.3), weight: 50),
+          TweenSequenceItem(tween: Tween(begin: 1.3, end: 0.9), weight: 25),
+          TweenSequenceItem(tween: Tween(begin: 0.9, end: 1.0), weight: 25),
+        ]).animate(
+          CurvedAnimation(parent: _streakController, curve: Curves.easeOut),
+        );
+
+    // Staggered day circles animation
+    _streakDaysController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2200),
+    );
+    _dayAnimations = List.generate(7, (i) {
+      final start = i / 10.0;
+      final end = start + 0.3;
+      return CurvedAnimation(
+        parent: _streakDaysController,
+        curve: Interval(
+          start.clamp(0.0, 1.0),
+          end.clamp(0.0, 1.0),
+          curve: Curves.elasticOut,
+        ),
+      );
+    });
+
+    Future.delayed(const Duration(milliseconds: 600), () {
+      if (mounted) {
+        _streakController.forward();
+        _streakDaysController.forward();
+      }
+    });
+
+    // Simplified staggered menu cards animation - 2.0s for slow feel
+    _menuController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+    );
+    const int cardCount = 6;
+    _menuAnimations = List.generate(cardCount, (i) {
+      // More spread out stagger
+      final double start = (i * 0.15).clamp(0.0, 1.0);
+      final double end = (start + 0.5).clamp(0.0, 1.0);
+      return CurvedAnimation(
+        parent: _menuController,
+        curve: Interval(start, end, curve: Curves.easeOutBack),
+      );
+    });
+
+    Future.delayed(const Duration(milliseconds: 1200), () {
+      if (mounted) _menuController.forward();
+    });
+
+    _scrollController.addListener(_checkStatsVisibility);
+    // Initial check in case it's already visible
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkStatsVisibility();
+    });
+  }
+
+  void _checkStatsVisibility() {
+    if (_statsAnimated) return;
+    final statsCtx = _statsKey.currentContext;
+    if (statsCtx == null) return;
+    final box = statsCtx.findRenderObject() as RenderBox?;
+    if (box == null || !box.attached) return;
+
+    final scrollable = Scrollable.of(statsCtx);
+    final viewport = scrollable.context.findRenderObject() as RenderBox?;
+    if (viewport == null) return;
+
+    final position = box.localToGlobal(Offset.zero, ancestor: viewport);
+    final viewportHeight = viewport.size.height;
+
+    // Trigger when the stats section top is at 90% of viewport height
+    if (position.dy < viewportHeight * 0.9) {
+      if (mounted) {
+        setState(() => _statsAnimated = true);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _streakController.dispose();
+    _streakDaysController.dispose();
+    _menuController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   String _getGreeting() {
     final hour = DateTime.now().hour;
@@ -105,6 +220,7 @@ class _DashboardHome extends StatelessWidget {
 
     return SafeArea(
       child: SingleChildScrollView(
+        controller: _scrollController,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -134,24 +250,196 @@ class _DashboardHome extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'Rangkuman Terkini',
+                        'Statistik Belajar',
                         style: textTheme.titleLarge?.copyWith(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                           color: AppColors.textPrimary,
                         ),
                       ),
+                      GestureDetector(
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const StatsScreen(),
+                          ),
+                        ),
+                        child: Text(
+                          'Lihat Detail',
+                          style: TextStyle(
+                            color: AppColors.accentBlue,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 24),
+                  Container(key: _statsKey, child: _buildLineChartSection()),
+                  const SizedBox(height: 24),
                 ],
               ),
             ),
-            _buildMateriScroll(),
-            const SizedBox(height: 32),
+            const SizedBox(height: 8),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildLineChartSection() {
+    return ListenableBuilder(
+      listenable: StatisticsService(),
+      builder: (context, _) {
+        final stats = StatisticsService();
+        return Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Aktivitas Belajar',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      Text(
+                        '7 Hari Terakhir',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryTeal.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${stats.studyTimeMinutes}m',
+                      style: const TextStyle(
+                        color: AppColors.primaryTeal,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              StudyLineChart(
+                key: ValueKey(_statsAnimated),
+                data: _statsAnimated
+                    ? stats.weeklyData
+                    : List.filled(stats.weeklyData.length, 0),
+                height: 130,
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildMiniStat(
+                    'Kuis+',
+                    _statsAnimated ? stats.quizzesCompleted : 0,
+                    Icons.quiz_rounded,
+                    const Color(0xFF6C63FF),
+                    key: ValueKey('quizzes_$_statsAnimated'),
+                  ),
+                  _buildMiniStat(
+                    'Kartu+',
+                    _statsAnimated ? stats.flashcardsPlayed : 0,
+                    Icons.style_rounded,
+                    const Color(0xFFD1A15E),
+                    key: ValueKey('flashcards_$_statsAnimated'),
+                  ),
+                  _buildMiniStat(
+                    'Waktu+',
+                    _statsAnimated ? stats.studyTimeMinutes : 0,
+                    Icons.timer_rounded,
+                    AppColors.accentBlue,
+                    suffix: 'm',
+                    key: ValueKey('time_$_statsAnimated'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              const Divider(height: 1),
+              const SizedBox(height: 16),
+              const Text(
+                'Materi yang Dirangkum (Harian)',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              StudyLineChart(
+                data: [1, 2, 1, 3, 2, 4, stats.materialsSummarized % 5 + 1],
+                height: 100,
+                color: const Color(0xFF1B4332),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMiniStat(
+    String label,
+    int value,
+    IconData icon,
+    Color color, {
+    String suffix = '',
+    Key? key,
+  }) {
+    return Column(
+      key: key,
+      children: [
+        Icon(icon, color: color.withValues(alpha: 0.7), size: 16),
+        const SizedBox(height: 4),
+        CountUpText(
+          targetValue: value,
+          suffix: suffix,
+          duration: const Duration(milliseconds: 2000),
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 10, color: AppColors.textSecondary),
+        ),
+      ],
     );
   }
 
@@ -272,21 +560,24 @@ class _DashboardHome extends StatelessWidget {
             children: [
               _buildHealthStat(
                 'Tidur',
-                '7 Jam',
+                7,
+                'Jam',
                 Icons.bedtime_rounded,
                 const Color(0xFF90E0EF),
               ),
               _buildDivider(),
               _buildHealthStat(
                 'Langkah',
-                '3.200',
+                3200,
+                'Langkah',
                 Icons.directions_walk_rounded,
                 const Color(0xFF95D5B2),
               ),
               _buildDivider(),
               _buildHealthStat(
                 'Fokus',
-                '2 Jam',
+                2,
+                'Jam',
                 Icons.psychology_rounded,
                 const Color(0xFFFFD166),
               ),
@@ -311,7 +602,8 @@ class _DashboardHome extends StatelessWidget {
 
   Widget _buildHealthStat(
     String label,
-    String value,
+    int numericValue,
+    String suffix,
     IconData icon,
     Color iconColor,
   ) {
@@ -326,8 +618,10 @@ class _DashboardHome extends StatelessWidget {
           child: Icon(icon, color: iconColor, size: 18),
         ),
         const SizedBox(height: 6),
-        Text(
-          value,
+        CountUpText(
+          targetValue: numericValue,
+          suffix: ' $suffix',
+          duration: const Duration(milliseconds: 2000),
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.bold,
@@ -365,18 +659,21 @@ class _DashboardHome extends StatelessWidget {
         children: [
           Row(
             children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFFF6B35), Color(0xFFFFAA40)],
+              ScaleTransition(
+                scale: _streakScale,
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFFF6B35), Color(0xFFFFAA40)],
+                    ),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.local_fire_department_rounded,
-                  color: Colors.white,
-                  size: 18,
+                  child: const Icon(
+                    Icons.local_fire_department_rounded,
+                    color: Colors.white,
+                    size: 18,
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
@@ -424,43 +721,46 @@ class _DashboardHome extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: List.generate(7, (i) {
-              return Column(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      gradient: completed[i]
-                          ? const LinearGradient(
-                              colors: [Color(0xFFFF6B35), Color(0xFFFFAA40)],
-                            )
-                          : null,
-                      color: completed[i] ? null : const Color(0xFFF0F0F0),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: Text(
-                        days[i],
-                        style: TextStyle(
-                          color: completed[i]
-                              ? Colors.white
-                              : AppColors.textSecondary,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
+              return ScaleTransition(
+                scale: _dayAnimations[i],
+                child: Column(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        gradient: completed[i]
+                            ? const LinearGradient(
+                                colors: [Color(0xFFFF6B35), Color(0xFFFFAA40)],
+                              )
+                            : null,
+                        color: completed[i] ? null : const Color(0xFFF0F0F0),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Text(
+                          days[i],
+                          style: TextStyle(
+                            color: completed[i]
+                                ? Colors.white
+                                : AppColors.textSecondary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  if (completed[i])
-                    const Icon(
-                      Icons.check_circle_rounded,
-                      size: 10,
-                      color: Color(0xFFFF6B35),
-                    )
-                  else
-                    const SizedBox(height: 10),
-                ],
+                    const SizedBox(height: 4),
+                    if (completed[i])
+                      const Icon(
+                        Icons.check_circle_rounded,
+                        size: 10,
+                        color: Color(0xFFFF6B35),
+                      )
+                    else
+                      const SizedBox(height: 10),
+                  ],
+                ),
               );
             }),
           ),
@@ -542,7 +842,22 @@ class _DashboardHome extends StatelessWidget {
         crossAxisSpacing: 12,
         childAspectRatio: 0.9,
       ),
-      itemBuilder: (context, index) => _buildMenuCard(menus[index]),
+      itemBuilder: (context, index) {
+        final animation = _menuAnimations[index];
+        return AnimatedBuilder(
+          animation: animation,
+          builder: (context, child) {
+            return Transform.translate(
+              offset: Offset(0, 30 * (1 - animation.value)),
+              child: Opacity(
+                opacity: animation.value.clamp(0.0, 1.0),
+                child: child,
+              ),
+            );
+          },
+          child: _buildMenuCard(menus[index]),
+        );
+      },
     );
   }
 
@@ -588,126 +903,6 @@ class _DashboardHome extends StatelessWidget {
       ),
     );
   }
-
-  Widget _buildMateriScroll() {
-    final materiList = [
-      _MateriData(
-        subject: 'Matematika',
-        topic: 'Integral & Turunan',
-        progress: 0.75,
-        color: const Color(0xFF6C63FF),
-      ),
-      _MateriData(
-        subject: 'Fisika',
-        topic: 'Gerak Lurus Berubah',
-        progress: 0.50,
-        color: const Color(0xFF43AA8B),
-      ),
-      _MateriData(
-        subject: 'Kimia',
-        topic: 'Ikatan Kimia',
-        progress: 0.30,
-        color: const Color(0xFFFF6B6B),
-      ),
-      _MateriData(
-        subject: 'Biologi',
-        topic: 'Sistem Pencernaan',
-        progress: 0.90,
-        color: const Color(0xFFD1A15E),
-      ),
-    ];
-    return SizedBox(
-      height: 150,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        itemCount: materiList.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 14),
-        itemBuilder: (context, index) => _buildMateriCard(materiList[index]),
-      ),
-    );
-  }
-
-  Widget _buildMateriCard(_MateriData materi) {
-    return Container(
-      width: 180,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: materi.color.withValues(alpha: 0.12),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: materi.color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              materi.subject,
-              style: TextStyle(
-                color: materi.color,
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            materi.topic,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
-              height: 1.3,
-            ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const Spacer(),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Progres',
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 10,
-                ),
-              ),
-              Text(
-                '${(materi.progress * 100).toInt()}%',
-                style: TextStyle(
-                  color: materi.color,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(50),
-            child: LinearProgressIndicator(
-              value: materi.progress,
-              backgroundColor: materi.color.withValues(alpha: 0.15),
-              valueColor: AlwaysStoppedAnimation<Color>(materi.color),
-              minHeight: 5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _MenuData {
@@ -722,18 +917,5 @@ class _MenuData {
     required this.color,
     required this.gradientColors,
     required this.onTap,
-  });
-}
-
-class _MateriData {
-  final String subject;
-  final String topic;
-  final double progress;
-  final Color color;
-  _MateriData({
-    required this.subject,
-    required this.topic,
-    required this.progress,
-    required this.color,
   });
 }

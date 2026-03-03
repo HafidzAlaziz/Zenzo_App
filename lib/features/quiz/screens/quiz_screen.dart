@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/gemini_service.dart';
 import '../../../core/services/learning_data_service.dart';
+import '../../../core/services/statistics_service.dart';
 import '../../../core/widgets/writing_animation.dart';
+import '../../../core/widgets/ai_error_widget.dart';
 
 class QuizScreen extends StatefulWidget {
   final String? customMaterial;
@@ -25,6 +27,7 @@ class _QuizScreenState extends State<QuizScreen> {
   bool _isFinished = false;
   bool _isLoading = true;
   int? _selectedOption;
+  bool _showFeedback = false;
   String _errorMessage = '';
   late String _selectedModel;
 
@@ -72,18 +75,26 @@ class _QuizScreenState extends State<QuizScreen> {
   }
 
   void _submitAnswer() {
-    if (_selectedOption == _quizQuestions[_currentQuestionIndex]['answer']) {
-      _score++;
-    }
-
-    if (_currentQuestionIndex < _quizQuestions.length - 1) {
-      setState(() {
-        _currentQuestionIndex++;
-        _selectedOption = null;
-      });
+    if (_showFeedback) {
+      if (_currentQuestionIndex < _quizQuestions.length - 1) {
+        setState(() {
+          _currentQuestionIndex++;
+          _selectedOption = null;
+          _showFeedback = false;
+        });
+      } else {
+        StatisticsService().incrementQuizzes();
+        StatisticsService().addStudyTime(5);
+        setState(() {
+          _isFinished = true;
+        });
+      }
     } else {
+      if (_selectedOption == _quizQuestions[_currentQuestionIndex]['answer']) {
+        _score++;
+      }
       setState(() {
-        _isFinished = true;
+        _showFeedback = true;
       });
     }
   }
@@ -112,36 +123,9 @@ class _QuizScreenState extends State<QuizScreen> {
           children: [
             _buildModelSelector(),
             Expanded(
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(32.0),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.info_outline_rounded,
-                        size: 64,
-                        color: AppColors.zenGold,
-                      ),
-                      const SizedBox(height: 24),
-                      Text(
-                        _errorMessage,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 16),
-                      ),
-                      const SizedBox(height: 32),
-                      ElevatedButton.icon(
-                        onPressed: _loadQuizQuestions,
-                        icon: const Icon(Icons.refresh_rounded),
-                        label: const Text('Coba Lagi'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primaryTeal,
-                          foregroundColor: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              child: AiErrorWidget(
+                errorMessage: _errorMessage,
+                onRetry: _loadQuizQuestions,
               ),
             ),
           ],
@@ -201,60 +185,82 @@ class _QuizScreenState extends State<QuizScreen> {
                   ) {
                     final option = question['options'][index];
                     final isSelected = _selectedOption == index;
+                    final isCorrect = question['answer'] == index;
+
+                    Color bgColor = Colors.white;
+                    Color borderColor = Colors.grey.withOpacity(0.2);
+                    Color contentColor = AppColors.textPrimary;
+                    IconData? resultIcon;
+
+                    if (_showFeedback) {
+                      if (isCorrect) {
+                        bgColor = Colors.green.withOpacity(0.1);
+                        borderColor = Colors.green;
+                        contentColor = Colors.green;
+                        resultIcon = Icons.check_circle_rounded;
+                      } else if (isSelected) {
+                        bgColor = Colors.red.withOpacity(0.1);
+                        borderColor = Colors.red;
+                        contentColor = Colors.red;
+                        resultIcon = Icons.cancel_rounded;
+                      }
+                    } else if (isSelected) {
+                      bgColor = AppColors.primaryTeal.withOpacity(0.1);
+                      borderColor = AppColors.primaryTeal;
+                      contentColor = AppColors.primaryTeal;
+                    }
+
                     return GestureDetector(
-                      onTap: () => setState(() => _selectedOption = index),
+                      onTap: _showFeedback
+                          ? null
+                          : () => setState(() => _selectedOption = index),
                       child: Container(
                         margin: const EdgeInsets.only(bottom: 16),
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: isSelected
-                              ? AppColors.primaryTeal.withOpacity(0.1)
-                              : Colors.white,
-                          border: Border.all(
-                            color: isSelected
-                                ? AppColors.primaryTeal
-                                : Colors.grey.withOpacity(0.2),
-                            width: 2,
-                          ),
+                          color: bgColor,
+                          border: Border.all(color: borderColor, width: 2),
                           borderRadius: BorderRadius.circular(16),
                         ),
                         child: Row(
                           children: [
-                            Container(
-                              width: 20,
-                              height: 20,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
+                            if (resultIcon != null)
+                              Icon(resultIcon, size: 24, color: contentColor)
+                            else
+                              Container(
+                                width: 22,
+                                height: 22,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: isSelected
+                                        ? AppColors.primaryTeal
+                                        : Colors.grey,
+                                    width: 2,
+                                  ),
                                   color: isSelected
                                       ? AppColors.primaryTeal
-                                      : Colors.grey,
-                                  width: 2,
+                                      : Colors.transparent,
                                 ),
-                                color: isSelected
-                                    ? AppColors.primaryTeal
-                                    : Colors.transparent,
+                                child: isSelected
+                                    ? const Icon(
+                                        Icons.check,
+                                        size: 14,
+                                        color: Colors.white,
+                                      )
+                                    : null,
                               ),
-                              child: isSelected
-                                  ? const Icon(
-                                      Icons.check,
-                                      size: 14,
-                                      color: Colors.white,
-                                    )
-                                  : null,
-                            ),
                             const SizedBox(width: 16),
                             Expanded(
                               child: Text(
                                 option.toString(),
                                 style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: isSelected
+                                  fontSize: 16,
+                                  fontWeight:
+                                      isSelected || (_showFeedback && isCorrect)
                                       ? FontWeight.bold
                                       : FontWeight.normal,
-                                  color: isSelected
-                                      ? AppColors.primaryTeal
-                                      : AppColors.textPrimary,
+                                  color: contentColor,
                                 ),
                               ),
                             ),
@@ -275,9 +281,11 @@ class _QuizScreenState extends State<QuizScreen> {
                       ),
                     ),
                     child: Text(
-                      _currentQuestionIndex < _quizQuestions.length - 1
-                          ? 'Lanjut'
-                          : 'Selesai',
+                      !_showFeedback
+                          ? 'Periksa Jawaban'
+                          : (_currentQuestionIndex < _quizQuestions.length - 1
+                                ? 'Lanjut'
+                                : 'Selesai'),
                     ),
                   ),
                 ],

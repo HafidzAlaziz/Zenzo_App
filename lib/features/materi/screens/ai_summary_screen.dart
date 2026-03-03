@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/gemini_service.dart';
 import '../../../core/widgets/writing_animation.dart';
+import '../../../core/widgets/ai_error_widget.dart';
+import '../../../core/widgets/flip_card.dart';
+import 'flashcard_screen.dart';
 
 class AiSummaryScreen extends StatefulWidget {
   final String title;
@@ -84,7 +87,16 @@ class _AiSummaryScreenState extends State<AiSummaryScreen> {
                     ),
                   )
                 : _errorMessage.isNotEmpty
-                ? _buildErrorView()
+                ? AiErrorWidget(
+                    errorMessage: _errorMessage,
+                    onRetry: () {
+                      setState(() {
+                        _isLoading = true;
+                        _errorMessage = '';
+                      });
+                      _generateSummary();
+                    },
+                  )
                 : _buildColorfulView(),
           ),
         ],
@@ -130,60 +142,6 @@ class _AiSummaryScreenState extends State<AiSummaryScreen> {
           color: isSelected ? Colors.white : AppColors.textPrimary,
           fontSize: 12,
           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildErrorView() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.cloud_off_rounded,
-              size: 64,
-              color: AppColors.error,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Server Sedang Penuh! 🚧',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _errorMessage.contains('503') || _errorMessage.contains('429')
-                  ? 'Model $_selectedModel sedang sibuk. Coba ganti model di atas atau tekan tombol refresh.'
-                  : 'Terjadi kesalahan: $_errorMessage',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () {
-                setState(() {
-                  _isLoading = true;
-                  _errorMessage = '';
-                });
-                _generateSummary();
-              },
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('Coba Lagi'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primaryTeal,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ],
         ),
       ),
     );
@@ -246,10 +204,61 @@ class _AiSummaryScreenState extends State<AiSummaryScreen> {
             ),
           ],
 
-          const SizedBox(height: 40),
+          const SizedBox(height: 32),
+          _buildFlashcardButton(flashcards),
+          const SizedBox(height: 12),
           _buildActionBtn(),
           const SizedBox(height: 40),
         ],
+      ),
+    );
+  }
+
+  Widget _buildFlashcardButton(List<dynamic> flashcards) {
+    if (flashcards.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      height: 60,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.zenGold, width: 2),
+      ),
+      child: ElevatedButton.icon(
+        onPressed: () {
+          final List<Map<String, String>> formattedCards = flashcards
+              .map(
+                (f) => {
+                  'question': (f['q'] ?? f['question'] ?? '').toString(),
+                  'answer': (f['a'] ?? f['answer'] ?? '').toString(),
+                },
+              )
+              .toList();
+
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => FlashcardScreen(initialCards: formattedCards),
+            ),
+          );
+        },
+        icon: const Icon(Icons.style_rounded, color: AppColors.zenGold),
+        label: const Text(
+          'Mainkan Flashcard Ini 🃏',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: AppColors.zenGold,
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+        ),
       ),
     );
   }
@@ -345,38 +354,44 @@ class _AiSummaryScreenState extends State<AiSummaryScreen> {
 
   Widget _buildFlashcard(Map<String, dynamic> card, int index) {
     bool isFlipped = _flippedCards[index] ?? false;
-    return GestureDetector(
+    return FlipCard(
+      isFlipped: isFlipped,
       onTap: () => setState(() => _flippedCards[index] = !isFlipped),
-      child: Container(
-        width: 250,
-        margin: const EdgeInsets.only(right: 16),
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: isFlipped
-                ? [AppColors.zenGold, const Color(0xFFB88E4F)]
-                : [Colors.white, const Color(0xFFF9F9F9)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
+      front: _buildSummaryCardSide(card['q'] ?? '', isFlipped: false),
+      back: _buildSummaryCardSide(card['a'] ?? '', isFlipped: true),
+    );
+  }
+
+  Widget _buildSummaryCardSide(String text, {required bool isFlipped}) {
+    return Container(
+      width: 250,
+      margin: const EdgeInsets.only(right: 16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isFlipped
+              ? [AppColors.zenGold, const Color(0xFFB88E4F)]
+              : [Colors.white, const Color(0xFFF9F9F9)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        child: Center(
-          child: Text(
-            isFlipped ? card['a'] ?? '' : card['q'] ?? '',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: isFlipped ? Colors.white : AppColors.textPrimary,
-            ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Center(
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: isFlipped ? Colors.white : AppColors.textPrimary,
           ),
         ),
       ),
@@ -448,13 +463,13 @@ class _AiSummaryScreenState extends State<AiSummaryScreen> {
 
             if (isAnswered) {
               if (optIndex == correctIndex) {
-                bgColor = Colors.green.withOpacity(0.1);
+                bgColor = Colors.green.withOpacity(0.15);
                 iconColor = Colors.green;
-                icon = Icons.check_circle;
+                icon = Icons.check_circle_rounded;
               } else if (optIndex == selected) {
-                bgColor = Colors.red.withOpacity(0.1);
+                bgColor = Colors.red.withOpacity(0.15);
                 iconColor = Colors.red;
-                icon = Icons.cancel;
+                icon = Icons.cancel_rounded;
               }
             } else if (selected == optIndex) {
               iconColor = AppColors.primaryTeal;
@@ -466,28 +481,43 @@ class _AiSummaryScreenState extends State<AiSummaryScreen> {
                   ? null
                   : () => setState(() => _selectedAnswers[qIndex] = optIndex),
               child: Container(
-                margin: const EdgeInsets.only(bottom: 8),
+                margin: const EdgeInsets.only(bottom: 10),
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
+                  horizontal: 16,
+                  vertical: 12,
                 ),
                 decoration: BoxDecoration(
                   color: bgColor,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: isAnswered && optIndex == correctIndex
+                        ? Colors.green
+                        : isAnswered && optIndex == selected
+                        ? Colors.red
+                        : Colors.transparent,
+                    width: 2,
+                  ),
                 ),
                 child: Row(
                   children: [
-                    Icon(icon, size: 20, color: iconColor),
-                    const SizedBox(width: 12),
+                    Icon(icon, size: 22, color: iconColor),
+                    const SizedBox(width: 14),
                     Expanded(
                       child: Text(
                         optText,
                         style: TextStyle(
-                          color:
+                          fontWeight:
                               isAnswered &&
-                                  optIndex == selected &&
-                                  selected != correctIndex
-                              ? Colors.red
+                                  (optIndex == correctIndex ||
+                                      optIndex == selected)
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                          color: isAnswered
+                              ? (optIndex == correctIndex
+                                    ? Colors.green.shade700
+                                    : optIndex == selected
+                                    ? Colors.red.shade700
+                                    : AppColors.textPrimary)
                               : AppColors.textPrimary,
                         ),
                       ),
